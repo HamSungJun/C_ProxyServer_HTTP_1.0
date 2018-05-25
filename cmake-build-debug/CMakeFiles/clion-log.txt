@@ -1,0 +1,11 @@
+/home/hamsungjun/다운로드/clion-2018.1.2/bin/cmake/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /home/hamsungjun/바탕화면/CLionProject/ProxyServer_Remake
+-- The C compiler identification is GNU 5.4.0
+-- Check for working C compiler: /usr/bin/cc
+-- Check for working C compiler: /usr/bin/cc -- works
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /home/hamsungjun/바탕화면/CLionProject/ProxyServer_Remake/cmake-build-debug
