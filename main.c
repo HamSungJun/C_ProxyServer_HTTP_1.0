@@ -1,3 +1,9 @@
+/*
+ * Description : HTTP/1.0 버전의 fork() 프로세스 모델을 이용한 웹 프록시 서버 구현.
+ * Author : 한양대학교 컴퓨터 공학과 2013041007 함성준
+ * Lecture : Computer Network
+ */
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdlib.h>
@@ -23,8 +29,8 @@
 void INIT__PROXY__SERVER(int PORT_NUM);
 void PARSE__HTTP__REQUEST(int WEB_BROWSER_SOCKET , char *HTTP_REQUEST , int FIFO_FD);
 char *GET_IP_FROM_HOST(char *HOST);
-void INITIALIZE__CONNECTION__PROXYCLIENT__ORIGINSERVER(int WEB_BROWSER_SOCKET , char *PASED , char *IP , int FIFO_FD);
-
+void INITIALIZE__CONNECTION__PROXYCLIENT__ORIGINSERVER(int WEB_BROWSER_SOCKET , char *PASED , char *IP , char *HOST, char *OBJECT);
+void PROXY_LOG_WRITER(char *HEADER_LINE , char *IP , char *HOST , char *OBJECT , int TRS);
 int main( int argc , char*argv[]) {
 
     if(argc <2){
@@ -208,14 +214,14 @@ void PARSE__HTTP__REQUEST(int WEB_BROWSER_SOCKET , char * HTTP_REQUEST , int FIF
 //        printf("OBJECT : %s\n" , OBJECT);
     }
 
-    sprintf( PASED ,"GET %s HTTP/1.0\r\nHost: %s\r\n%sAccept-Encoding: gzip, deflate\r\nConnection: close\r\n\r\n",OBJECT,HOST,USER_LINE);
+    sprintf( PASED ,"%s %s HTTP/1.0\r\nHost: %s\r\n%sAccept-Encoding: gzip, deflate\r\nConnection: close\r\n\r\n",METHOD,OBJECT,HOST,USER_LINE);
     printf("HTTP/1.0으로 만들어진 리퀘스트는 다음과 같습니다.\n%s\n",PASED);
 
 
 
     IP = GET_IP_FROM_HOST(HOST);
     printf("호스트를 통해 확보한 IP ADDRESS : %s\n" , IP);
-    INITIALIZE__CONNECTION__PROXYCLIENT__ORIGINSERVER(WEB_BROWSER_SOCKET ,  PASED , IP , FIFO_FD);
+    INITIALIZE__CONNECTION__PROXYCLIENT__ORIGINSERVER(WEB_BROWSER_SOCKET ,  PASED , IP , HOST , OBJECT);
 
 }
 char *GET_IP_FROM_HOST(char *HOST){
@@ -239,7 +245,7 @@ char *GET_IP_FROM_HOST(char *HOST){
     return IP;
 
 }
-void INITIALIZE__CONNECTION__PROXYCLIENT__ORIGINSERVER(int WEB_BROWSER_SOCKET , char *PASED , char *IP , int FIFO_FD){
+void INITIALIZE__CONNECTION__PROXYCLIENT__ORIGINSERVER(int WEB_BROWSER_SOCKET , char *PASED , char *IP , char *HOST , char *OBJECT){
 
     int PROXY_CLIENT_SOCKET = socket(PF_INET, SOCK_STREAM, 0);
     if (PROXY_CLIENT_SOCKET == -1) {
@@ -269,14 +275,70 @@ void INITIALIZE__CONNECTION__PROXYCLIENT__ORIGINSERVER(int WEB_BROWSER_SOCKET , 
 
     int READ_SIZE = 0;
     int WRITE_SIZE = 0;
+    int TOTAL_READ_SIZE = 0;
+
+    int DATA_STREAM_INDEX = 0;
+    char *HEADER_LINE_PTR = (char *)malloc(2000);
+    memset(HEADER_LINE_PTR , 0 , 2000);
+
     while ((READ_SIZE = read( PROXY_CLIENT_SOCKET , RECEIVE_BUFFER , QUAD_BUFF_SIZE)) > 0){
+        TOTAL_READ_SIZE = TOTAL_READ_SIZE + READ_SIZE;
+        if(DATA_STREAM_INDEX == 0){
+            strncpy( HEADER_LINE_PTR , RECEIVE_BUFFER , 1024);
+        }
        write(WEB_BROWSER_SOCKET , RECEIVE_BUFFER , READ_SIZE);
-       printf("응답 내용은 다음과 같습니다 %s\n",RECEIVE_BUFFER);
+       printf("응답 내용은 다음과 같습니다 \n%s\n",RECEIVE_BUFFER);
        memset(RECEIVE_BUFFER , 0 , QUAD_BUFF_SIZE);
+       DATA_STREAM_INDEX++;
     }
 
+    PROXY_LOG_WRITER(HEADER_LINE_PTR , IP , HOST , OBJECT , TOTAL_READ_SIZE);
     shutdown(PROXY_CLIENT_SOCKET , SHUT_RDWR);
     close(PROXY_CLIENT_SOCKET);
+
+}
+
+void PROXY_LOG_WRITER(char *HEADER_LINE , char *IP , char *HOST , char *OBJECT , int TRS){
+    // 1.parse headerline
+    // 2.Date : ??? EST : IP http:// HOST | OBJECT | TRS
+    // 3.close FD
+    int FILE_PROXYLOG_FD;
+    if((FILE_PROXYLOG_FD = open( "PROXYLOG" , O_RDWR | O_CREAT | O_SYNC | O_APPEND , 0777))  == -1){
+        perror("로그용 파일 여는데에 실패.");
+        exit(1);
+    }
+
+    if(access("PROXYLOG",F_OK)  == -1){
+        perror("프록시 로그용 파일이 존재하지 않습니다.");
+        exit(1);
+    }
+
+    char *LOG_LINE_PTR = (char *)malloc(2000);
+    memset(LOG_LINE_PTR , 0 , 2000);
+    char *HEADER_LINE_COPY_PTR = (char *)malloc(2000);
+    memset(HEADER_LINE_COPY_PTR , 0 , 2000);
+
+    strncpy(HEADER_LINE_COPY_PTR,HEADER_LINE,strlen(HEADER_LINE));
+
+    char *DATE_ADR = strstr(HEADER_LINE_COPY_PTR , "Date: ");
+    char *DATE_LINE = strtok(DATE_ADR , "\r\n");
+
+    if(DATE_LINE == NULL){
+        sprintf( LOG_LINE_PTR , "NO DATE EST : %s http://%s%s => %d\n" , IP , HOST , OBJECT , TRS);
+    }
+    else{
+        sprintf( LOG_LINE_PTR , "%s EST : %s http://%s%s => %d\n" , DATE_LINE , IP , HOST , OBJECT , TRS);
+    }
+
+    if(write( FILE_PROXYLOG_FD , LOG_LINE_PTR , strlen(LOG_LINE_PTR)) == -1){
+        perror("로그용 파일에 작성중 오류 발생. ");
+        exit(1);
+    }
+
+    printf("\n\n로그를 작성중입니다 ... %s 완료!\n\n",LOG_LINE_PTR);
+    close(FILE_PROXYLOG_FD);
+    free(LOG_LINE_PTR);
+    free(HEADER_LINE_COPY_PTR);
 
 }
 
